@@ -4,7 +4,14 @@ import httpx
 from .models import Place
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Public Overpass servers are free and often overloaded (429/502/504),
+# so we try mirrors in order until one answers
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
 
 # Search radius around the city center; tourist cores fit well inside 3 km
 RADIUS_M = 3000
@@ -90,7 +97,25 @@ def parse_overpass(elements: list[dict]) -> list[Place]:
     return sights[:MAX_SIGHTS] + food[:MAX_FOOD]
 
 
-async def fetch_places(client: httpx.AsyncClient, lat: float, lon: float) -> list[Place]:
-    resp = await client.post(OVERPASS_URL, data={"data": _build_query(lat, lon)}, timeout=40)
-    resp.raise_for_status()
-    return parse_overpass(resp.json().get("elements", []))
+class PlacesUnavailable(Exception):
+    pass
+
+
+async def fetch_places(client: httpx.AsyncClient, lat: float, lon: float,
+                       urls: list[str] | None = None) -> list[Place]:
+    """Query Overpass, falling back to the next mirror on overload or network error."""
+    query = _build_query(lat, lon)
+    errors: list[str] = []
+    for url in urls or OVERPASS_URLS:
+        try:
+            resp = await client.post(url, data={"data": query}, timeout=40)
+            # 429 = rate limited, 5xx = overloaded: try the next mirror
+            if resp.status_code == 429 or resp.status_code >= 500:
+                errors.append(f"{url} -> HTTP {resp.status_code}")
+                continue
+            resp.raise_for_status()
+            return parse_overpass(resp.json().get("elements", []))
+        except (httpx.TransportError, ValueError) as e:
+            # TransportError = timeout/connection; ValueError = HTML instead of JSON
+            errors.append(f"{url} -> {type(e).__name__}")
+    raise PlacesUnavailable("; ".join(errors))

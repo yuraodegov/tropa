@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 
 from .models import PlanRequest, PlanResponse
-from .places import CityNotFound, fetch_places, geocode_city
+from .places import CityNotFound, PlacesUnavailable, fetch_places, geocode_city
 from .planner import plan_days
 
 load_dotenv()
@@ -33,8 +33,8 @@ async def plan(req: PlanRequest) -> PlanResponse:
             raise HTTPException(404, f"City not found: {req.city}")
         try:
             places = await fetch_places(http, lat, lon)
-        except httpx.HTTPError as e:
-            # Overpass is a free shared server and sometimes busy (429/504)
+        except (PlacesUnavailable, httpx.HTTPError) as e:
+            # All Overpass mirrors failed; the message lists each one's error
             raise HTTPException(503, f"Places service unavailable: {e}")
 
     if len(places) < 5:
