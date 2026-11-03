@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Secrets
+.env
+
+# Android (for phase 2)
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
