@@ -13,3 +13,6 @@ build/
 local.properties
 *.iml
 .idea/
+
+# Local test outputs
+plan_*.json
